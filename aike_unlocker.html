@@ -59,7 +59,10 @@
         let isEco = false;
 
         async function execute(cmdId) {
-            if(!cmdChar) return;
+            if(!cmdChar) {
+                alert("Bitte klicke zuerst auf 'INITIALISIERE VERBINDUNG'!");
+                return;
+            }
             const p = new Uint8Array([0x00, 0xD4, 0x00, cmdId, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
             try {
                 await cmdChar.writeValueWithResponse(p);
@@ -88,6 +91,10 @@
         }
 
         document.getElementById('btnConnect').onclick = async () => {
+            if (!navigator.bluetooth) {
+                alert("Dein Browser unterstützt leider kein Bluetooth!\n\nWICHTIG: Auf dem iPhone funktioniert Bluetooth im normalen Safari NICHT. Bitte lade Dir die kostenlose App 'Bluefy' herunter und öffne den Link dort.");
+                return;
+            }
             try {
                 const dev = await navigator.bluetooth.requestDevice({
                     filters: [{ namePrefix: 'Aike' }, { namePrefix: 'AIKE' }],
