@@ -125,5 +125,40 @@
             });
         }
     </script>
+    <script>
+        window.addEventListener('DOMContentLoaded', () => {
+            if (!navigator.bluetooth) {
+                const isAndroid = /Android/i.test(navigator.userAgent);
+                const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+                
+                const overlay = document.createElement('div');
+                overlay.style.position = 'fixed';
+                overlay.style.inset = '0';
+                overlay.style.backgroundColor = '#050505';
+                overlay.style.zIndex = '9999';
+                overlay.style.display = 'flex';
+                overlay.style.flexDirection = 'column';
+                overlay.style.alignItems = 'center';
+                overlay.style.justifyContent = 'center';
+                overlay.style.padding = '2rem';
+                overlay.style.textAlign = 'center';
+                
+                let content = '<h2 style="font-size:1.5rem; font-weight:bold; color:#ef4444; margin-bottom:1rem;">Falscher Browser!</h2>';
+                content += '<p style="color:#e0e0e0; margin-bottom:2rem;">Dein aktueller Browser (z.B. Firefox) blockiert Bluetooth.</p>';
+                
+                if (isAndroid) {
+                    content += '<a href="intent://kalimer00.github.io/aike-unlock-web-app/aike_unlocker.html#Intent;scheme=https;package=com.android.chrome;end" style="background:#22c55e; color:#000; padding:15px 25px; border-radius:12px; font-weight:bold; text-decoration:none;">IN GOOGLE CHROME ÖFFNEN</a>';
+                } else if (isIOS) {
+                    content += '<p style="color:#a1a1aa;">Auf dem iPhone musst Du Dir die App <b>Bluefy</b> herunterladen. Kopiere diesen Link und öffne ihn in Bluefy:</p>';
+                    content += '<input type="text" value="https://kalimer00.github.io/aike-unlock-web-app/aike_unlocker.html" style="margin-top:1rem; padding:10px; width:100%; border-radius:8px; color:#000; text-align:center;" readonly onclick="this.select();">';
+                } else {
+                    content += '<p style="color:#a1a1aa;">Bitte kopiere die URL und öffne sie in <b>Google Chrome</b>.</p>';
+                }
+                
+                overlay.innerHTML = content;
+                document.body.appendChild(overlay);
+            }
+        });
+    </script>
 </body>
 </html>
