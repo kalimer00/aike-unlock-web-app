@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Äike T - Fix V23.1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #050505; color: #e0e0e0; font-family: 'Courier New', monospace; padding: 15px; }
+        .terminal { background: #000; border: 1px solid #222; height: 350px; overflow-y: auto; padding: 12px; font-size: 11px; color: #00ff00; margin-bottom: 15px; }
+        .btn { padding: 15px; width: 100%; border-radius: 10px; font-weight: bold; margin-bottom: 10px; cursor: pointer; text-transform: uppercase; border: none; }
+        .btn-auth { background: #b91c1c; color: white; }
+        .btn-cmd { background: #16a34a; color: white; }
+        .log-send { color: #00bfff; }
+        .log-recv { color: #ff00ff; }
+    </style>
+</head>
+<body class="flex flex-col items-center">
+
+    <div class="w-full max-w-lg bg-zinc-900 p-6 rounded-2xl border border-zinc-800 shadow-2xl">
+        <h2 class="text-center text-red-500 font-black mb-1 text-2xl tracking-tighter">ÄIKE T: AUTH-FIX 23.1</h2>
+        <p class="text-center text-zinc-500 text-xs mb-6">API Update: writeValueWithResponse</p>
+        
+        <button id="btnAuth" class="btn btn-auth">1. CONNECT & AUTH</button>
+        
+        <div id="log" class="terminal rounded-lg"></div>
+
+        <div class="grid grid-cols-2 gap-3">
+            <button onclick="sendAikeCmd(0x01)" class="btn btn-cmd">🔓 UNLOCK</button>
+            <button onclick="sendAikeCmd(0x02)" class="btn bg-zinc-700 text-white">🔒 LOCK</button>
+        </div>
+        <button onclick="sendAikeCmd(0x03)" class="btn bg-blue-600 text-white w-full">🍃 ECO MODE</button>
+    </div>
+
+    <script>
+        const logEl = document.getElementById('log');
+        let cmdChar = null;
+
+        function addLog(msg, type = '') {
+            const time = new Date().toLocaleTimeString();
+            let cls = type === 'send' ? 'log-send' : (type === 'recv' ? 'log-recv' : '');
+            logEl.innerHTML += `<div class="${cls}">[${time}] ${msg}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        document.getElementById('btnAuth').onclick = async () => {
+            try {
+                addLog("Suche Äike...");
+                const dev = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'Aike' }, { namePrefix: 'AIKE' }],
+                    optionalServices: ["00002554-1212-efde-1523-785feabcd123", "00001554-1212-efde-1523-785feabcd123"]
+                });
+
+                const server = await dev.gatt.connect();
+                addLog("GATT verbunden.");
+
+                // AUTH SERVICE
+                const authSvc = await server.getPrimaryService("00002554-1212-efde-1523-785feabcd123");
+                
+                // CHALLENGE LESEN
+                const chalChar = await authSvc.getCharacteristic("00002556-1212-efde-1523-785feabcd123");
+                const challenge = new Uint8Array((await chalChar.readValue()).buffer);
+                addLog("Challenge: " + [...challenge].map(x => x.toString(16).padStart(2,'0')).join(' '));
+
+                // HASH BERECHNEN (SHA-1 + 20x 0xFF)
+                const suffix = new Uint8Array(20).fill(0xFF);
+                const combined = new Uint8Array([...challenge, ...suffix]);
+                const hashBuffer = await crypto.subtle.digest('SHA-1', combined);
+                const hash = new Uint8Array(hashBuffer);
+
+                // HASH SCHREIBEN (Update auf writeValueWithResponse)
+                const respChar = await authSvc.getCharacteristic("00002557-1212-efde-1523-785feabcd123");
+                await respChar.writeValueWithResponse(hash);
+                addLog("Auth-Hash gesendet.");
+
+                // COMMAND SERVICE
+                const cmdSvc = await server.getPrimaryService("00001554-1212-efde-1523-785feabcd123");
+                
+                // NOTIFICATIONS FÜR FEEDBACK
+                const nChar = await cmdSvc.getCharacteristic("0000155e-1212-efde-1523-785feabcd123");
+                await nChar.startNotifications();
+                nChar.addEventListener('characteristicvaluechanged', e => {
+                    const val = [...new Uint8Array(e.target.value.buffer)].map(x => x.toString(16).padStart(2,'0')).join(' ');
+                    addLog("<<< " + val, 'recv');
+                });
+
+                cmdChar = await cmdSvc.getCharacteristic("0000155f-1212-efde-1523-785feabcd123");
+                addLog("BEREIT. Versuche jetzt UNLOCK.");
+            } catch (e) {
+                addLog("Fehler: " + e.message);
+                console.error(e);
+            }
+        };
+
+        async function sendAikeCmd(cmdId) {
+            if(!cmdChar) return addLog("Erst Button 1 drücken!");
+            
+            // 10-Byte-Paket: 00 D4 00 [ID] 00 00 00 00 00 00
+            const p = new Uint8Array([0x00, 0xD4, 0x00, cmdId, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+            
+            try {
+                // Bei Befehlen nutzen wir oft WithoutResponse für Speed, 
+                // aber falls es hakt, probieren wir hier WithResponse.
+                await cmdChar.writeValueWithResponse(p);
+                addLog(`>>> SEND: ${[...p].map(x => x.toString(16).padStart(2,'0')).join(' ')}`, 'send');
+            } catch(e) {
+                addLog("Sende-Fehler: " + e.message);
+            }
+        }
+    </script>
+</body>
+</html>
+

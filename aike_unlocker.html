@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Äike T Dashboard</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#050505">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #050505; color: #e0e0e0; font-family: sans-serif; }
+        .led { width: 20px; height: 20px; border-radius: 50%; background: #222; transition: 0.4s; box-shadow: inset 0 0 5px #000; }
+        .led-green.active { background: #22c55e; box-shadow: 0 0 15px #22c55e; }
+        .led-red.active { background: #ef4444; box-shadow: 0 0 15px #ef4444; }
+        .led-blue.active { background: #3b82f6; box-shadow: 0 0 15px #3b82f6; }
+        .btn { padding: 18px; border-radius: 12px; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; }
+        .btn:active { transform: scale(0.96); }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-6">
+
+    <div class="w-full max-w-sm bg-zinc-900 p-8 rounded-[2.5rem] border border-zinc-800 shadow-2xl">
+        <h1 class="text-center font-black text-2xl tracking-tighter mb-8 italic text-zinc-100">ÄIKE <span class="text-red-600">T</span></h1>
+        
+        <div class="flex justify-around mb-10 bg-black/40 p-6 rounded-2xl border border-white/5">
+            <div class="flex flex-col items-center gap-2">
+                <div id="ledPower" class="led led-green"></div>
+                <span class="text-[10px] uppercase tracking-widest text-zinc-500">Power</span>
+            </div>
+            <div class="flex flex-col items-center gap-2">
+                <div id="ledLock" class="led led-red active"></div>
+                <span class="text-[10px] uppercase tracking-widest text-zinc-500">Lock</span>
+            </div>
+            <div class="flex flex-col items-center gap-2">
+                <div id="ledEco" class="led led-blue"></div>
+                <span class="text-[10px] uppercase tracking-widest text-zinc-500">Eco</span>
+            </div>
+        </div>
+
+        <div class="flex flex-col gap-4">
+            <button id="btnConnect" class="btn bg-white text-black text-sm">INITIALISIERE VERBINDUNG</button>
+            
+            <div class="grid grid-cols-2 gap-4 mt-4">
+                <button onclick="execute(0x01)" class="btn bg-zinc-800 text-green-500 border border-green-500/20">START</button>
+                <button onclick="execute(0x02)" class="btn bg-zinc-800 text-red-500 border border-red-500/20">STOP</button>
+            </div>
+            
+            <button onclick="execute(0x03)" class="btn bg-zinc-800 text-blue-400 border border-blue-500/20 mt-2">ECO MODUS UMTSCHALTEN</button>
+        </div>
+
+        <p id="statusMsg" class="text-center text-[10px] text-zinc-600 mt-8 uppercase tracking-widest">Bereit zum Koppeln</p>
+    </div>
+
+    <script>
+        let cmdChar = null;
+        let isEco = false;
+
+        async function execute(cmdId) {
+            if(!cmdChar) return;
+            const p = new Uint8Array([0x00, 0xD4, 0x00, cmdId, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+            try {
+                await cmdChar.writeValueWithResponse(p);
+                updateUI(cmdId);
+            } catch(e) { document.getElementById('statusMsg').innerText = "Sende-Fehler"; }
+        }
+
+        function updateUI(cmdId) {
+            const power = document.getElementById('ledPower');
+            const lock = document.getElementById('ledLock');
+            const eco = document.getElementById('ledEco');
+
+            if(cmdId === 0x01) { // Unlock
+                power.classList.add('active');
+                lock.classList.remove('active');
+                document.getElementById('statusMsg').innerText = "System Aktiv";
+            } else if(cmdId === 0x02) { // Lock
+                power.classList.remove('active');
+                lock.classList.add('active');
+                document.getElementById('statusMsg').innerText = "Gesperrt";
+            } else if(cmdId === 0x03) { // Eco Toggle
+                isEco = !isEco;
+                isEco ? eco.classList.add('active') : eco.classList.remove('active');
+                document.getElementById('statusMsg').innerText = isEco ? "Eco Aktiv" : "Standard Modus";
+            }
+        }
+
+        document.getElementById('btnConnect').onclick = async () => {
+            try {
+                const dev = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'Aike' }, { namePrefix: 'AIKE' }],
+                    optionalServices: ["00002554-1212-efde-1523-785feabcd123", "00001554-1212-efde-1523-785feabcd123"]
+                });
+                const server = await dev.gatt.connect();
+                const authSvc = await server.getPrimaryService("00002554-1212-efde-1523-785feabcd123");
+                const chal = new Uint8Array((await (await authSvc.getCharacteristic("00002556-1212-efde-1523-785feabcd123")).readValue()).buffer);
+                const hash = new Uint8Array(await crypto.subtle.digest('SHA-1', new Uint8Array([...chal, ...new Uint8Array(20).fill(0xFF)])));
+                await (await authSvc.getCharacteristic("00002557-1212-efde-1523-785feabcd123")).writeValueWithResponse(hash);
+
+                const cmdSvc = await server.getPrimaryService("00001554-1212-efde-1523-785feabcd123");
+                cmdChar = await cmdSvc.getCharacteristic("0000155f-1212-efde-1523-785feabcd123");
+                
+                document.getElementById('statusMsg').innerText = "Verbunden & Authentifiziert";
+                document.getElementById('btnConnect').innerText = "VERBUNDEN";
+                document.getElementById('btnConnect').classList.add('opacity-50', 'pointer-events-none');
+            } catch (e) { document.getElementById('statusMsg').innerText = "Fehler: " + e.message; }
+        };
+    </script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./service-worker.js')
+                    .then(reg => console.log('Service Worker registered', reg))
+                    .catch(err => console.log('Service Worker not registered', err));
+            });
+        }
+    </script>
+</body>
+</html>
